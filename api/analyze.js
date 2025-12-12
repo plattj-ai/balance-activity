@@ -11,13 +11,14 @@ module.exports = async (request, response) => {
   if (request.method === 'OPTIONS') return response.status(200).end();
 
   try {
-    // --- SECURE VAULT CONNECTION ---
+    // --- SECURE VERSION ---
+    // This pulls the key from Vercel's Settings instead of the code file
     const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
     
     if (!apiKey) {
         return response.status(500).json({ feedback: "System Error: API Key is missing from server settings." });
     }
-    // -------------------------------
+    // ----------------------
 
     const body = request.body || {};
     
@@ -44,7 +45,7 @@ module.exports = async (request, response) => {
 
     if (!chosenModel) return response.status(200).json({ feedback: "DEBUG: No models found." });
 
-    // 3. PROMPT: Added instruction to forbid markdown
+    // 3. PROMPT: Short, 6th-grade appropriate feedback
     const promptText = `
       You are a 6th Grade Graphic Design Teacher.
       Analyze this student's work.
@@ -55,10 +56,13 @@ module.exports = async (request, response) => {
 
       Instructions:
       - Write EXACTLY 2-3 sentences.
-      - Structure: Praise, Critique, then Actionable Tip.
+      - Do NOT define terms. Do NOT give a lecture.
+      - Structure:
+        1. Praise: Mention something good (effort, variety).
+        2. Critique: Explain why it is balanced or unbalanced.
+        3. Action: Give a specific tip (e.g., "Try moving the darker shape closer to the center").
       - Tone: Encouraging and simple.
-      - Format: Raw HTML paragraphs (<p>). 
-      - IMPORTANT: Do NOT use markdown code blocks or backticks. Just the raw text.
+      - Format: HTML paragraphs (<p>).
     `;
 
     // 4. RUN IT
@@ -68,4 +72,20 @@ module.exports = async (request, response) => {
     const apiResponse = await fetch(generateUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringif
+      body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
+    });
+
+    if (!apiResponse.ok) {
+      const errorText = await apiResponse.text();
+      return response.status(200).json({ feedback: `Error: ${apiResponse.status} ${errorText}` });
+    }
+
+    const data = await apiResponse.json();
+    let feedback = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI returned no text.";
+
+    return response.status(200).json({ feedback });
+
+  } catch (error) {
+    return response.status(200).json({ feedback: `Error: ${error.message}` });
+  }
+};
