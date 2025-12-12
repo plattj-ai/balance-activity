@@ -15,21 +15,18 @@ module.exports = async (request, response) => {
     const apiKey = "AIzaSyDydaUhYtCbRn9Xr17Ah8Cu9AvlSL9y6Wc"; 
     // -------------------------------
 
-    // 2. Parse Body (Safe Mode)
-    // If parsing fails, we use default empty values to prevent crashing
     const body = request.body || {};
-    const totalShapes = body.totalShapes || 0;
-    const currentStatus = body.currentStatus || "Unknown";
-
-    // 3. Construct Prompt
+    
+    // Construct Prompt
     const promptText = `
       Act as a 6th Grade Teacher. Analyze this balance scale activity.
-      Status: ${currentStatus}. Shapes count: ${totalShapes}.
-      Give 2 sentences of feedback.
+      Shapes: ${body.totalShapes || 0}. Status: ${body.currentStatus || "Unknown"}.
+      Give 2-3 sentences of encouraging feedback. Use HTML.
     `;
 
-    // 4. Call Google (Using the older 'gemini-pro' model which is more compatible)
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+    // 2. Call Google (Using the latest Stable Flash model)
+    // We switched from 'v1beta' to 'v1' for maximum stability
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
     
     const apiResponse = await fetch(url, {
       method: 'POST',
@@ -37,22 +34,20 @@ module.exports = async (request, response) => {
       body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
     });
 
-    // 5. DEBUGGING: If it fails, send the ACTUAL error to the student screen
+    // 3. Handle Errors
     if (!apiResponse.ok) {
       const errorText = await apiResponse.text();
       return response.status(200).json({ 
-        feedback: `<strong>DEBUG ERROR:</strong> Google refused the connection.<br><br>Status: ${apiResponse.status}<br>Details: ${errorText}` 
+        feedback: `<strong>DEBUG ERROR:</strong> Google refused the connection.<br>Status: ${apiResponse.status}<br>Details: ${errorText}` 
       });
     }
 
     const data = await apiResponse.json();
     let feedback = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI returned no text.";
 
-    // Success!
     return response.status(200).json({ feedback });
 
   } catch (error) {
-    // If the server crashes, send the crash report to the screen
     return response.status(200).json({ 
       feedback: `<strong>SYSTEM CRASH:</strong> ${error.message}` 
     });
