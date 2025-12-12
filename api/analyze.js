@@ -12,34 +12,59 @@ module.exports = async (request, response) => {
 
   try {
     // --- PASTE PERSONAL KEY HERE ---
-    // The .trim() function removes invisible spaces that cause 404 errors!
     const apiKey = "AIzaSyDydaUhYtCbRn9Xr17Ah8Cu9AvlSL9y6Wc".trim(); 
     // -------------------------------
 
     const body = request.body || {};
     
-    // Construct Prompt
+    // 2. AUTO-DETECT: Ask Google which models are available
+    const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+    const listResponse = await fetch(listUrl);
+    
+    if (!listResponse.ok) {
+        throw new Error(`Failed to list models: ${listResponse.status}`);
+    }
+
+    const listData = await listResponse.json();
+    const models = listData.models || [];
+
+    // Find a model that supports 'generateContent'
+    // We prefer Flash, then Pro, then anything else
+    let chosenModel = models.find(m => m.name.includes('gemini-1.5-flash')) ||
+                      models.find(m => m.name.includes('gemini-pro')) ||
+                      models.find(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'));
+
+    if (!chosenModel) {
+        // Debugging: Print what WAS found so we can fix it
+        const namesFound = models.map(m => m.name).join(", ");
+        return response.status(200).json({ 
+            feedback: `<strong>DEBUG:</strong> Key is valid, but no generation models found.<br>Models available: ${namesFound}` 
+        });
+    }
+
+    // 3. Construct Prompt
     const promptText = `
       Act as a 6th Grade Teacher. Analyze this balance scale activity.
       Shapes: ${body.totalShapes || 0}. Status: ${body.currentStatus || "Unknown"}.
-      Give 2 sentences of encouraging feedback. Use HTML.
+      Give 2 encouraging sentences. Use HTML.
     `;
 
-    // 2. Call Google (Using the latest model)
-    // We use 'v1beta' which is where Personal Keys usually look for Flash
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
-    
-    const apiResponse = await fetch(url, {
+    // 4. Run Analysis using the Auto-Detected Model
+    // chosenModel.name looks like "models/gemini-1.5-flash-001"
+    // We remove the "models/" prefix if it exists to be safe, though the API handles it
+    const cleanModelName = chosenModel.name.replace("models/", "");
+    const generateUrl = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModelName}:generateContent?key=${apiKey}`;
+
+    const apiResponse = await fetch(generateUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
     });
 
-    // 3. Handle Errors
     if (!apiResponse.ok) {
       const errorText = await apiResponse.text();
       return response.status(200).json({ 
-        feedback: `<strong>DEBUG ERROR:</strong> Google refused the connection.<br>Status: ${apiResponse.status}<br>Details: ${errorText}` 
+        feedback: `<strong>DEBUG ERROR:</strong> Connected to ${cleanModelName} but failed.<br>Status: ${apiResponse.status}<br>Details: ${errorText}` 
       });
     }
 
