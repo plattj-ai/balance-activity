@@ -11,14 +11,13 @@ module.exports = async (request, response) => {
   if (request.method === 'OPTIONS') return response.status(200).end();
 
   try {
-    // --- SECURE VERSION ---
-    // This pulls the key from Vercel's Settings instead of the code file
+    // --- SECURE VAULT CONNECTION ---
     const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
     
+    // Safety fallback: If Vercel var is missing, catch it early
     if (!apiKey) {
         return response.status(500).json({ feedback: "System Error: API Key is missing from server settings." });
     }
-    // ----------------------
 
     const body = request.body || {};
     
@@ -45,7 +44,7 @@ module.exports = async (request, response) => {
 
     if (!chosenModel) return response.status(200).json({ feedback: "DEBUG: No models found." });
 
-    // 3. PROMPT: Short, 6th-grade appropriate feedback
+    // 3. PROMPT (The one that worked!)
     const promptText = `
       You are a 6th Grade Graphic Design Teacher.
       Analyze this student's work.
@@ -82,6 +81,10 @@ module.exports = async (request, response) => {
 
     const data = await apiResponse.json();
     let feedback = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI returned no text.";
+
+    // 5. THE CLEANUP (The only new part)
+    // We gently peel off the markdown symbols if they exist
+    feedback = feedback.replace(/```html/gi, "").replace(/```/g, "").trim();
 
     return response.status(200).json({ feedback });
 
