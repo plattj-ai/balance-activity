@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Balance Activity</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the app */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Grid background for the artboard - Dark Mode */
+        #artboard {
+            background-color: #334155; /* bg-slate-700 */
+            background-size: 20px 20px;
+            background-image:
+                linear-gradient(to right, #475569 1px, transparent 1px),
+                linear-gradient(to bottom, #475569 1px, transparent 1px); /* slate-600 grid */
+        }
+        
+        /* Style for the draggable shapes */
+        .shape {
+            position: absolute;
+            cursor: grab;
+            /* filter will be set by JS to combine saturation and drop-shadow */
+            transition: box-shadow 0.2s ease, transform 0.2s ease, filter 0.2s ease;
+            z-index: 20; /* Above fulcrum and grid */
+        }
+        
+        .shape:active {
+            cursor: grabbing;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+            transform: scale(1.05);
+            z-index: 50; /* Bring to front when dragging */
+        }
+
+        /* Style for selected shape */
+        .shape.selected {
+            /* filter is now set by JS, but this z-index is still needed */
+            z-index: 49; /* Just below dragging z-index */
+        }
+        
+        /* The fulcrum (center line) */
+        #fulcrum {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 3px;
+            height: 100%;
+            background-color: #fca5a5; /* red-300 */
+            z-index: 1; /* Behind everything */
+        }
+        
+        /* The visual balance beam container */
+        #balance-beam-container {
+            position: absolute;
+            bottom: 100px; 
+            left: 10%;
+            right: 10%;
+            height: 60px; /* Increased height for visual space */
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            z-index: 10; 
+        }
+        
+        /* The balance beam itself */
+        #balance-beam {
+            width: 100%;
+            height: 16px; /* Thicker beam */
+            background-color: #cbd5e1; /* slate-300 */
+            border-radius: 8px; /* More rounded */
+            transition: transform 0.5s ease-out;
+            transform-origin: center bottom;
+            position: relative;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); /* Add some depth */
+        }
+
+        /* Pivot point circle */
+        #balance-pivot {
+            position: absolute;
+            bottom: 96px; /* Aligned with the center of the beam */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 20px;
+            height: 20px;
+            background-color: #475569; /* slate-600 */
+            border-radius: 50%;
+            z-index: 11; /* Above beam, below shapes */
+            box-shadow: 0 0 5px rgba(0,0,0,0.5) inset;
+        }
+        
+        /* The triangle under the beam */
+        #balance-fulcrum-visual {
+            width: 0; 
+            height: 0; 
+            border-left: 30px solid transparent; /* Wider base */
+            border-right: 30px solid transparent; /* Wider base */
+            border-bottom: 50px solid; /* Taller */
+            border-image: linear-gradient(to bottom, #94a3b8, #475569) 1; /* Grey gradient */
+            position: absolute;
+            bottom: 45px; /* Adjusted to sit below the beam */
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9; /* Below beam */
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
+
+        /* Balance status text container */
+        #balance-status-container {
+            position: absolute;
+            bottom: 10px; /* Lower position */
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 15; /* Above beam and fulcrum */
+            background-color: rgba(51, 65, 85, 0.9); /* bg-slate-700 with transparency */
+            padding: 8px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            backdrop-filter: blur(2px); /* Subtle blur effect */
+        }
+
+        #balance-status-text {
+            font-weight: bold;
+            font-size: 1.5rem; /* Larger text */
+            color: #e2e8f0; /* slate-200 for readability */
+            transition: color 0.5s ease;
+        }
+        
+        /* Simple modal for instructions */
+        #modal {
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+
+        /* Style for disabled buttons */
+        button:disabled, input[type="range"]:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-300 flex flex-col items-center min-h-screen p-4 md:p-8 antialiased">
+
+    <div class="w-full max-w-6xl">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-100">Interactive Balance Activity</h1>
+            <p class="text-lg text-slate-400 mt-2">Place 4 or more shapes on the artboard to see how they affect the balance!</p>
+        </header>
+
+        <div class="flex flex-col md:flex-row gap-4">
+
+            <div class="bg-slate-800 rounded-lg shadow-lg flex flex-col divide-y divide-slate-700 w-full md:w-64 md:flex-shrink-0">
+                
+                <div class="flex flex-col items-stretch gap-4 p-4">
+                    <h3 class="text-lg font-semibold text-slate-200">Add Shapes</h3>
+                    <div class="flex flex-col gap-3">
+                        <button id="add-square" class="btn-add bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all" data-type="square">Add Square</button>
+                        <button id="add-circle" class="btn-add bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all" data-type="circle">Add Circle</button>
+                        <button id="add-rectangle" class="btn-add bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all" data-type="rectangle">Add Rectangle</button>
+                    </div>
+                    <div class="flex flex-col gap-3 mt-3">
+                        <div class="flex flex-col items-start gap-2">
+                            <label for="size-slider" class="text-sm font-medium text-slate-300">Size:</label>
+                            <div class="flex items-center gap-2 w-full">
+                                <input type="range" id="size-slider" min="80" max="200" value="100" class="w-full accent-indigo-500">
+                                <span id="size-value" class="text-sm font-medium text-slate-100 w-12 text-right">100px</span>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-start gap-2">
+                            <label for="shade-slider" class="text-sm font-medium text-slate-300">Shade:</label>
+                            <div class="flex items-center gap-2 w-full">
+                                <input type="range" id="shade-slider" min="1" max="5" value="1" step="1" class="w-full accent-indigo-500">
+                                <span id="shade-value" class="text-sm font-medium text-slate-100 w-24 text-right">Lightest</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex flex-col items-stretch gap-3 p-4">
+                    <h3 class="text-lg font-semibold text-slate-200">Mode</h3>
+                    <div class="flex items-center space-x-2 bg-slate-700 p-1 rounded-lg">
+                        <button id="mode-asymmetrical" class="mode-btn bg-white text-indigo-600 shadow-sm py-1 px-3 rounded-md text-sm font-medium transition-colors w-1/2">Asymmetrical</button>
+                        <button id="mode-symmetrical" class="mode-btn text-slate-400 hover:text-slate-200 py-1 px-3 rounded-md text-sm font-medium transition-colors w-1/2">Symmetrical</button>
+                    </div>
+                    
+                    <button id="challenge-btn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all">Start Challenge</button>
+                </div>
+                
+                <div class="flex flex-col items-stretch gap-3 p-4">
+                    <h3 class="text-lg font-semibold text-slate-200">Board</h3>
+                    <button id="delete-btn" class="bg-pink-600 hover:bg-pink-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all disabled:opacity-50" disabled>Delete Selected</button>
+                    <button id="reset-board" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all">Reset</button>
+                    <button id="analyze-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all">Analyze Balance</button>
+                    <button id="help-button" class="bg-slate-500 hover:bg-slate-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2" aria-label="Help">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.79 4 4 0 1.142-.448 2.164-1.175 2.916C13.825 14.82 12 15.5 12 17m0 2v.01" /></svg>
+                        <span>Help</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="artboard" class="w-full h-[600px] rounded-lg shadow-xl relative overflow-hidden border-4 border-slate-700 flex-grow">
+                <div id="fulcrum"></div>
+                
+                <div id="balance-beam-container">
+                    <div id="balance-beam"></div>
+                </div>
+                <div id="balance-fulcrum-visual"></div>
+                <div id="balance-pivot"></div>
+                <div id="balance-status-container">
+                    <span id="balance-status-text">Balanced</span>
+                </div>
+            </div>
+
+        </div> <div id="explanation-text" class="text-center text-slate-400 mt-4 p-4 bg-slate-800 rounded-lg shadow-lg max-w-3xl mx-auto">
+            Welcome! Select shape, size, and shade, then click to add. Drag shapes to see how size and darkness affect balance.
+        </div>
+    </div>
+
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[100] invisible opacity-0 overflow-y-auto">
+        <div class="bg-slate-800 text-slate-300 rounded-lg shadow-2xl p-6 md:p-8 max-w-2xl w-full my-8">
+            <h2 class="text-2xl font-bold mb-4 text-slate-100">What is Visual Balance?</h2>
+            <p class="text-slate-300 mb-4">
+                Visual balance is about making a picture feel stable and not lopsided. Think of it like a seesaw! You don't want one side to feel way "heavier" than the other. We arrange things (like shapes and colors) so the picture feels steady and nice to look at.
+            </p>
+
+            <h3 class="text-xl font-semibold mb-3 text-slate-200">Types of Balance</h3>
+            <ul class="list-disc list-inside space-y-2 mb-4 text-slate-300">
+                <li><strong class="text-indigo-400">Symmetrical Balance:</strong> This is when both sides are the same, like a mirror. It feels calm and orderly. (Try "Symmetrical" mode!)</li>
+                <li><strong class="text-indigo-400">Asymmetrical Balance:</strong> This is when the sides are different, but still feel balanced. A big shape on one side can be balanced by a few small shapes on the other. (This is the "Asymmetrical" mode!)</li>
+            </ul>
+            
+            <h3 class="text-xl font-semibold mb-3 text-slate-200">What is "Visual Weight"?</h3>
+            <p class="text-slate-300 mb-4">
+                "Visual weight" is how much a shape grabs your eye. In this app, we look at two things:
+            </p>
+            <ul class="list-disc list-inside space-y-2 mb-4 text-slate-300">
+                <li><strong>Size:</strong> Bigger shapes feel "heavier."</li>
+                <li><strong>Shade:</strong> Darker shapes also feel "heavier."</li>
+                <li>We also check how far the shape is from the center line, just like on a real seesaw!</li>
+            </ul>
+
+            <h3 class="text-xl font-semibold mb-3 text-slate-200">Why Does Balance Matter?</h3>
+            <ul class="list-disc list-inside space-y-2 mb-6 text-slate-300">
+                <li>It makes the picture feel steady and comfortable.</li>
+                <li>It helps guide your eyes where to look.</li>
+                <li>It makes the design feel finished and orderly.</li>
+            </ul>
+
+            <button id="close-modal" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg w-full transition-colors">Got it!</button>
+        </div>
+    </div>
+    
+    <div id="gemini-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[101] invisible opacity-0 overflow-y-auto">
+        <div class="bg-slate-800 text-slate-300 rounded-lg shadow-2xl p-6 md:p-8 max-w-2xl w-full my-8">
+            <h2 class="text-2xl font-bold mb-4 text-slate-100">AI Balance Analysis</h2>
+            
+            <div id="gemini-loader" class="text-center p-8 hidden">
+                <style>
+                    /* Simple Tailwind-compatible spinner */
+                    .spinner { border-top-color: #4f46e5; /* indigo-600 */ animation: spin 1s linear infinite; }
+                    @keyframes spin { to { transform: rotate(360deg); } }
+                </style>
+                <div class="spinner h-12 w-12 border-4 border-slate-600 rounded-full inline-block"></div>
+                <p class="text-lg text-slate-400 mt-4">Analyzing your design...</p>
+            </div>
+
+            <div id="gemini-result" class="prose prose-invert max-w-none text-slate-300" style="color: #cbd5e1;">
+                </div>
+
+            <button id="close-gemini-modal" class="mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg w-full transition-colors">Close</button>
+        </div>
+    </div>
+
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Element cache
+            const artboard = document.getElementById('artboard');
+            const fulcrum = document.getElementById('fulcrum');
+            const balanceBeam = document.getElementById('balance-beam');
+            const balanceStatusText = document.getElementById('balance-status-text');
+            const explanationText = document.getElementById('explanation-text');
+            const addButtons = document.querySelectorAll('.btn-add');
+            const sizeSlider = document.getElementById('size-slider');
+            const sizeValue = document.getElementById('size-value');
+            const shadeSlider = document.getElementById('shade-slider');
+            const shadeValue = document.getElementById('shade-value');
+            const resetBtn = document.getElementById('reset-board');
+            const deleteBtn = document.getElementById('delete-btn');
+            const modeButtons = document.querySelectorAll('.mode-btn');
+            const challengeBtn = document.getElementById('challenge-btn');
+            
+            // Modals
+            const helpBtn = document.getElementById('help-button');
+            const closeModalBtn = document.getElementById('close-modal');
+            const modal = document.getElementById('modal');
+
+            // AI Modal Elements
+            const analyzeBtn = document.getElementById('analyze-btn');
+            const geminiModal = document.getElementById('gemini-modal');
+            const closeGeminiModalBtn = document.getElementById('close-gemini-modal');
+            const geminiLoader = document.getElementById('gemini-loader');
+            const geminiResult = document.getElementById('gemini-result');
+
+            // State
+            let shapes = [];
+            let draggingShape = null;
+            let shapeData = null;
+            let selectedShapeData = null;
+            let offset = { x: 0, y: 0 };
+            let currentMode = 'asymmetrical';
+            let shapeCounter = 0;
+            let inChallengeMode = false;
+
+            // Definitions
+            const colors = {
+                square: '#3b82f6',
+                circle: '#22c55e',
+                rectangle: '#dc2626'
+            };
+            const shadeNames = ['Lightest', 'Light', 'Medium', 'Dark', 'Darkest'];
+            const shadeWeightMultipliers = [1.0, 1.25, 1.5, 1.75, 2.0];
+            const shadeSaturations = [0.3, 0.475, 0.65, 0.825, 1.0];
+
+            // --- Event Listeners ---
+            
+            sizeSlider.addEventListener('input', () => {
+                const newSize = sizeSlider.value;
+                sizeValue.textContent = `${newSize}px`;
+                if (selectedShapeData) updateSelectedShapeSize(newSize);
+            });
+
+            shadeSlider.addEventListener('input', () => {
+                const newShade = parseInt(shadeSlider.value);
+                shadeValue.textContent = shadeNames[newShade - 1];
+                if (selectedShapeData) updateSelectedShapeShade(newShade);
+            });
+            
+            addButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    if (selectedShapeData) deselectShape();
+                    const type = button.dataset.type;
+                    const size = parseInt(sizeSlider.value);
+                    const width = (type === 'rectangle') ? size / 2 : size;
+                    const shade = parseInt(shadeSlider.value);
+                    const shadeMultiplier = shadeWeightMultipliers[shade - 1];
+                    const area = (type === 'rectangle') ? size * width : size * size;
+                    const weight = (area / 100) * shadeMultiplier; 
+                    const color = colors[type];
+                    const saturation = shadeSaturations[shade - 1];
+                    
+                    const fulcrumX = artboard.offsetWidth / 2;
+                    let x;
+                    if (inChallengeMode) {
+                        x = fulcrumX + (Math.random() * (artboard.offsetWidth * 0.5 - size));
+                    } else {
+                        x = fulcrumX - (width / 2) - (artboard.offsetWidth * 0.25);
+                    }
+                    const y = artboard.offsetHeight * 0.5 - (size / 2);
+                    const newShapeId = `shape-${shapeCounter++}`;
+                    createShape(x, y, size, weight, type, color, newShapeId, false, saturation);
+                    if (currentMode === 'symmetrical' && !inChallengeMode) {
+                        const mirrorX = artboard.offsetWidth - x - width;
+                        createShape(mirrorX, y, size, weight, type, color, `${newShapeId}-mirror`, false, saturation);
+                    }
+                });
+            });
+
+            artboard.addEventListener('mousedown', (e) => {
+                if (!e.target.classList.contains('shape')) deselectShape();
+                if (e.target.classList.contains('shape')) {
+                    e.preventDefault();
+                    draggingShape = e.target;
+                    shapeData = shapes.find(s => s.id === draggingShape.id);
+                    selectShape(shapeData);
+                    const rect = draggingShape.getBoundingClientRect();
+                    offset.x = e.clientX - rect.left;
+                    offset.y = e.clientY - rect.top;
+                    draggingShape.style.cursor = 'grabbing';
+                }
+            });
+
+            artboard.addEventListener('mousemove', (e) => {
+                if (!draggingShape) return;
+                e.preventDefault();
+                const artboardRect = artboard.getBoundingClientRect();
+                let newX = e.clientX - artboardRect.left - offset.x;
+                let newY = e.clientY - artboardRect.top - offset.y;
+                newX = Math.max(0, Math.min(newX, artboard.offsetWidth - shapeData.width)); 
+                newY = Math.max(0, Math.min(newY, artboard.offsetHeight - shapeData.size));
+                if (inChallengeMode && !shapeData.isChallengeShape) {
+                    const fulcrumX = artboard.offsetWidth / 2;
+                    newX = Math.max(fulcrumX, newX);
+                }
+                draggingShape.style.left = `${newX}px`;
+                draggingShape.style.top = `${newY}px`;
+                shapeData.x = newX;
+                shapeData.y = newY;
+                if (currentMode === 'symmetrical' && !inChallengeMode) {
+                    handleSymmetricalDrag(shapeData);
+                }
+                calculateBalance();
+            });
+
+            artboard.addEventListener('mouseup', () => {
+                if (draggingShape) draggingShape.style.cursor = 'grab';
+                draggingShape = null;
+                shapeData = null;
+            });
+            
+            artboard.addEventListener('mouseleave', () => {
+                 if (draggingShape) draggingShape.style.cursor = 'grab';
+                draggingShape = null;
+                shapeData = null;
+            });
+
+            resetBtn.addEventListener('click', resetBoard);
+            deleteBtn.addEventListener('click', deleteSelectedShape);
+
+            modeButtons.forEach(button => {
+                button.addEventListener('click', () => {
+                    setMode(button.id === 'mode-symmetrical' ? 'symmetrical' : 'asymmetrical');
+                });
+            });
+
+            challengeBtn.addEventListener('click', startChallenge);
+            helpBtn.addEventListener('click', () => { modal.classList.remove('invisible', 'opacity-0'); });
+            closeModalBtn.addEventListener('click', () => { modal.classList.add('invisible', 'opacity-0'); });
+            
+            // AI Modal Listeners
+            analyzeBtn.addEventListener('click', analyzeBalance);
+            closeGeminiModalBtn.addEventListener('click', () => { geminiModal.classList.add('invisible', 'opacity-0'); });
+
+            // --- Core Functions ---
+
+            function setMode(newMode) {
+                deselectShape();
+                currentMode = newMode;
+                 modeButtons.forEach(btn => {
+                    btn.classList.toggle('bg-white', btn.id === `mode-${currentMode}`);
+                    btn.classList.toggle('text-indigo-600', btn.id === `mode-${currentMode}`);
+                    btn.classList.toggle('shadow-sm', btn.id === `mode-${currentMode}`);
+                    btn.classList.toggle('text-slate-400', btn.id !== `mode-${currentMode}`);
+                    btn.classList.toggle('hover:text-slate-200', btn.id !== `mode-${currentMode}`);
+                });
+                explanationText.textContent = currentMode === 'symmetrical' 
+                    ? 'Symmetrical Mode: Shapes are mirrored. You can select and edit shapes, and the mirror will update!'
+                    : 'Asymmetrical Mode: Freely place shapes. Click to select and edit.';
+                resetBoard();
+            }
+
+            function startChallenge() {
+                setMode('asymmetrical'); 
+                inChallengeMode = true;
+                explanationText.textContent = 'CHALLENGE: The left side is set. Add shapes to the RIGHT side to balance the scale!';
+                document.getElementById('mode-symmetrical').disabled = true;
+                challengeBtn.disabled = true;
+                challengeBtn.textContent = 'Challenge Active';
+                
+                const shapeTypes = ['square', 'circle', 'rectangle'];
+                const fulcrumX = artboard.offsetWidth / 2;
+                const minSize = 80;
+                const maxSize = 200;
+                for (let i = 0; i < 8; i++) {
+                    const type = shapeTypes[Math.floor(Math.random() * shapeTypes.length)];
+                    const size = Math.floor(Math.random() * (maxSize - minSize + 1)) + minSize;
+                    const width = (type === 'rectangle') ? size / 2 : size;
+                    const shade = Math.floor(Math.random() * 5) + 1;
+                    const shadeMultiplier = shadeWeightMultipliers[shade - 1];
+                    const saturation = shadeSaturations[shade - 1];
+                    const area = (type === 'rectangle') ? size * width : size * size;
+                    const weight = (area / 100) * shadeMultiplier;
+                    const color = colors[type];
+                    const x = Math.random() * (fulcrumX - width);
+                    const y = Math.random() * (artboard.offsetHeight - size);
+                    const shapeId = `shape-${shapeCounter++}`;
+                    createShape(x, y, size, weight, type, color, shapeId, true, saturation);
+                }
+                calculateBalance();
+            }
+
+            function createShape(x, y, size, weight, type, color, id, isChallengeShape = false, saturation = 1.0) {
+                const shapeEl = document.createElement('div');
+                shapeEl.id = id;
+                shapeEl.classList.add('shape');
+                const width = (type === 'rectangle') ? size / 2 : size;
+                shapeEl.style.width = `${width}px`;
+                shapeEl.style.height = `${size}px`;
+                shapeEl.style.left = `${x}px`;
+                shapeEl.style.top = `${y}px`;
+                shapeEl.style.backgroundColor = color;
+                shapeEl.style.filter = `saturate(${saturation}) drop-shadow(0 0 1px rgba(0, 0, 0, 0.7))`; 
+                if (type === 'circle') shapeEl.style.borderRadius = '50%';
+                if (isChallengeShape) shapeEl.style.borderStyle = 'dashed';
+
+                const shapeData = {
+                    id: id, el: shapeEl, x, y, size, width, weight, type, color, saturation,
+                    isMirror: id.includes('-mirror'), isChallengeShape: isChallengeShape
+                };
+                
+                if (currentMode === 'symmetrical' && !shapeData.isMirror && !isChallengeShape) {
+                    shapeData.mirrorId = `${id}-mirror`;
+                } else if (shapeData.isMirror) {
+                    shapeData.mirrorId = id.replace('-mirror', '');
+                }
+                shapes.push(shapeData);
+                artboard.appendChild(shapeEl);
+                calculateBalance();
+            }
+
+            function handleSymmetricalDrag(draggedShapeData) {
+                if (inChallengeMode) return; 
+                const mirrorShapeData = shapes.find(s => s.id === draggedShapeData.mirrorId);
+                if (!mirrorShapeData) return;
+                const mirrorX = artboard.offsetWidth - draggedShapeData.x - draggedShapeData.width;
+                const mirrorY = draggedShapeData.y;
+                mirrorShapeData.x = mirrorX;
+                mirrorShapeData.y = mirrorY;
+                mirrorShapeData.el.style.left = `${mirrorX}px`;
+                mirrorShapeData.el.style.top = `${mirrorY}px`;
+            }
+
+            function calculateBalance() {
+                if (shapes.length < 4 && !inChallengeMode) {
+                    updateVisuals(0, true);
+                    return;
+                }
+                let totalWeightLeft = 0;
+                let totalWeightRight = 0;
+                const fulcrumX = artboard.offsetWidth / 2;
+                shapes.forEach(shape => {
+                    const shapeCenterX = shape.x + (shape.width / 2);
+                    const distance = Math.abs(shapeCenterX - fulcrumX);
+                    const visualWeight = shape.weight * distance;
+                    if (shapeCenterX < fulcrumX) totalWeightLeft += visualWeight;
+                    else totalWeightRight += visualWeight;
+                });
+                const weightDifference = totalWeightRight - totalWeightLeft;
+                const tiltScale = 8000; 
+                let tiltAngle = weightDifference / tiltScale;
+                tiltAngle = Math.max(-25, Math.min(25, tiltAngle)); 
+                updateVisuals(tiltAngle, false);
+            }
+
+            function updateVisuals(tiltAngle, isLocked = false) {
+                if (isLocked) {
+                    balanceBeam.style.transform = 'rotate(0deg)';
+                    balanceStatusText.textContent = 'Add more shapes!';
+                    balanceStatusText.style.color = '#e2e8f0';
+                } else {
+                    balanceBeam.style.transform = `rotate(${tiltAngle}deg)`;
+                    if (Math.abs(tiltAngle) < 0.5) {
+                        balanceStatusText.textContent = 'Balanced';
+                        balanceStatusText.style.color = '#22c55e';
+                    } else if (tiltAngle > 0) {
+                        balanceStatusText.textContent = 'Tipped Right';
+                        balanceStatusText.style.color = '#ef4444';
+                    } else {
+                        balanceStatusText.textContent = 'Tipped Left';
+                        balanceStatusText.style.color = '#ef4444';
+                    }
+                }
+            }
+
+            function resetBoard() {
+                deselectShape();
+                shapes.forEach(shape => artboard.removeChild(shape.el));
+                shapes = [];
+                shapeCounter = 0;
+                inChallengeMode = false;
+                document.getElementById('mode-symmetrical').disabled = false;
+                challengeBtn.disabled = false;
+                challengeBtn.textContent = 'Start Challenge';
+                explanationText.textContent = currentMode === 'symmetrical'
+                    ? 'Symmetrical Mode: Shapes are mirrored. You can select and edit shapes, and the mirror will update!'
+                    : 'Asymmetrical Mode: Freely place shapes. Click to select and edit.';
+                calculateBalance();
+            }
+            
+            // --- Selection Functions ---
+
+            function selectShape(shapeData) {
+                if (selectedShapeData && selectedShapeData.id === shapeData.id) return;
+                deselectShape();
+                selectedShapeData = shapeData;
+                selectedShapeData.el.style.filter = `saturate(${selectedShapeData.saturation}) drop-shadow(0 0 2px white) drop-shadow(0 0 6px white) drop-shadow(0 0 12px white) drop-shadow(0 0 1px rgba(0, 0, 0, 0.7))`;
+                selectedShapeData.el.classList.add('selected');
+                deleteBtn.disabled = false;
+                sizeSlider.value = selectedShapeData.size;
+                sizeValue.textContent = `${selectedShapeData.size}px`;
+                const baseArea = selectedShapeData.size * selectedShapeData.width;
+                const baseWeight = baseArea / 100; 
+                const multiplier = selectedShapeData.weight / baseWeight;
+                let shadeIndex = shadeWeightMultipliers
+                    .map((val, i) => ({ i, diff: Math.abs(val - multiplier) }))
+                    .sort((a, b) => a.diff - b.diff)[0].i;
+                shadeSlider.value = shadeIndex + 1;
+                shadeValue.textContent = shadeNames[shadeIndex];
+                addButtons.forEach(btn => btn.disabled = true);
+                if (inChallengeMode) {
+                    deleteBtn.disabled = true; sizeSlider.disabled = true; shadeSlider.disabled = true;
+                } else {
+                    sizeSlider.disabled = false; shadeSlider.disabled = false; deleteBtn.disabled = false;
+                }
+            }
+
+            function deselectShape() {
+                if (!selectedShapeData) return;
+                selectedShapeData.el.style.filter = `saturate(${selectedShapeData.saturation}) drop-shadow(0 0 1px rgba(0, 0, 0, 0.7))`;
+                selectedShapeData.el.classList.remove('selected');
+                selectedShapeData = null;
+                deleteBtn.disabled = true;
+                addButtons.forEach(btn => btn.disabled = false);
+                sizeSlider.disabled = false;
+                shadeSlider.disabled = false;
+            }
+
+            function deleteSelectedShape() {
+                if (!selectedShapeData || inChallengeMode) return;
+                if (currentMode === 'symmetrical' && selectedShapeData.mirrorId) {
+                    const mirrorShape = shapes.find(s => s.id === selectedShapeData.mirrorId);
+                    if (mirrorShape) {
+                        if (mirrorShape.el.parentNode === artboard) artboard.removeChild(mirrorShape.el);
+                        shapes = shapes.filter(s => s.id !== mirrorShape.id);
+                    }
+                }
+                artboard.removeChild(selectedShapeData.el);
+                shapes = shapes.filter(s => s.id !== selectedShapeData.id);
+                deselectShape();
+                calculateBalance();
+            }
+
+            function updateSelectedShapeSize(newSize) {
+                if (!selectedShapeData || inChallengeMode) return;
+                newSize = parseInt(newSize);
+                const newWidth = (selectedShapeData.type === 'rectangle') ? newSize / 2 : newSize;
+                const oldWidth = selectedShapeData.width;
+                const oldHeight = selectedShapeData.size;
+                const widthDiff = newWidth - oldWidth;
+                const heightDiff = newSize - oldHeight;
+                selectedShapeData.x -= widthDiff / 2;
+                selectedShapeData.y -= heightDiff / 2;
+                selectedShapeData.el.style.left = `${selectedShapeData.x}px`;
+                selectedShapeData.el.style.top = `${selectedShapeData.y}px`;
+                const currentShade = parseInt(shadeSlider.value);
+                const shadeMultiplier = shadeWeightMultipliers[currentShade - 1];
+                selectedShapeData.size = newSize;
+                selectedShapeData.width = newWidth;
+                const newArea = newSize * newWidth;
+                selectedShapeData.weight = (newArea / 100) * shadeMultiplier;
+                selectedShapeData.el.style.width = `${newWidth}px`;
+                selectedShapeData.el.style.height = `${newSize}px`;
+
+                if (currentMode === 'symmetrical' && selectedShapeData.mirrorId) {
+                    const mirrorShape = shapes.find(s => s.id === selectedShapeData.mirrorId);
+                    if (mirrorShape) {
+                        mirrorShape.x -= widthDiff / 2;
+                        mirrorShape.y -= heightDiff / 2;
+                        mirrorShape.el.style.left = `${mirrorShape.x}px`;
+                        mirrorShape.el.style.top = `${mirrorShape.y}px`;
+                        mirrorShape.size = newSize;
+                        mirrorShape.width = newWidth;
+                        mirrorShape.weight = (newArea / 100) * shadeMultiplier;
+                        mirrorShape.el.style.width = `${newWidth}px`;
+                        mirrorShape.el.style.height = `${newSize}px`;
+                    }
+                }
+                calculateBalance();
+            }
+
+            function updateSelectedShapeShade(newShade) {
+                if (!selectedShapeData || inChallengeMode) return;
+                const shadeIndex = parseInt(newShade) - 1;
+                const shadeMultiplier = shadeWeightMultipliers[shadeIndex];
+                const area = selectedShapeData.size * selectedShapeData.width;
+                selectedShapeData.weight = (area / 100) * shadeMultiplier;
+                const newSaturation = shadeSaturations[shadeIndex];
+                selectedShapeData.saturation = newSaturation;
+                selectedShapeData.el.style.filter = `saturate(${selectedShapeData.saturation}) drop-shadow(0 0 2px white) drop-shadow(0 0 6px white) drop-shadow(0 0 12px white) drop-shadow(0 0 1px rgba(0, 0, 0, 0.7))`;
+                
+                if (currentMode === 'symmetrical' && selectedShapeData.mirrorId) {
+                     const mirrorShape = shapes.find(s => s.id === selectedShapeData.mirrorId);
+                     if (mirrorShape) {
+                         mirrorShape.weight = (area / 100) * shadeMultiplier;
+                         mirrorShape.saturation = newSaturation;
+                         mirrorShape.el.style.filter = `saturate(${mirrorShape.saturation}) drop-shadow(0 0 1px rgba(0, 0, 0, 0.7))`;
+                     }
+                }
+                calculateBalance();
+            }
+
+            // --- AI Analysis Functions ---
+
+            function analyzeBalance() {
+                const fulcrumX = artboard.offsetWidth / 2;
+                const shapeDataForAnalysis = shapes.map(s => {
+                    const shapeCenterX = s.x + (s.width / 2);
+                    const area = s.size * s.width;
+                    const baseWeight = area / 100;
+                    const multiplier = s.weight / baseWeight;
+                    let shadeIndex = shadeWeightMultipliers
+                        .map((val, i) => ({ i, diff: Math.abs(val - multiplier) }))
+                        .sort((a, b) => a.diff - b.diff)[0].i;
+                        
+                    return {
+                        type: s.type,
+                        size: s.size,
+                        shade: shadeNames[shadeIndex],
+                        positionSide: (shapeCenterX < fulcrumX) ? 'Left' : 'Right',
+                        // Normalize distance (0-100 scale for AI to understand better)
+                        distanceFromCenter: Math.round((Math.abs(shapeCenterX - fulcrumX) / (artboard.offsetWidth/2)) * 100)
+                    };
+                });
+
+                const totalShapes = shapes.length;
+                const currentStatus = balanceStatusText.textContent;
+                const mode = inChallengeMode ? "Challenge Mode" : (currentMode === 'symmetrical' ? "Symmetrical" : "Asymmetrical");
+
+                geminiResult.innerHTML = '';
+                geminiLoader.classList.remove('hidden');
+                geminiModal.classList.remove('invisible', 'opacity-0');
+
+                // Real API Call
+                fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        shapeData: shapeDataForAnalysis, 
+                        totalShapes, 
+                        currentStatus,
+                        mode
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    return response.json();
+                })
+                .then(data => {
+                    geminiLoader.classList.add('hidden');
+                    // Render the markdown/HTML returned from AI
+                    geminiResult.innerHTML = data.feedback; 
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    geminiLoader.classList.add('hidden');
+                    geminiResult.innerHTML = `<p class="text-red-400">Oops! My teacher brain is having trouble connecting to the internet right now. Please try again in a moment.</p>`;
+                });
+            }
+
+            // Initial setup
+            sizeValue.textContent = `${sizeSlider.value}px`;
+            shadeValue.textContent = shadeNames[parseInt(shadeSlider.value) - 1];
+            calculateBalance();
+        });
+    </script>
+</body>
+</html>
