@@ -1,6 +1,6 @@
 module.exports = async (request, response) => {
   // --- PASTE YOUR PERSONAL KEY INSIDE THE QUOTES BELOW ---
-  const apiKey = "PASTE_YOUR_PERSONAL_KEY_HERE"; 
+  const apiKey = "AIzaSyDydaUhYtCbRn9Xr17Ah8Cu9AvlSL9y6Wc"; 
   // -------------------------------------------------------
 
   // Standard Headers
@@ -50,3 +50,4 @@ module.exports = async (request, response) => {
     return response.status(500).json({ feedback: `<p>Test Failed: ${error.message}</p>` });
   }
 };
+
