@@ -18,51 +18,50 @@ module.exports = async (request, response) => {
     const body = request.body || {};
     
     // 2. ASK GOOGLE: "What models can I use?"
+    // (We keep this logic because it's what finally fixed the connection!)
     const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
     const listResponse = await fetch(listUrl);
     
-    if (!listResponse.ok) {
-        throw new Error(`Failed to list models: ${listResponse.status}`);
-    }
+    if (!listResponse.ok) throw new Error(`Failed to list models: ${listResponse.status}`);
 
     const listData = await listResponse.json();
     const allModels = listData.models || [];
 
-    // 3. INTELLIGENT FILTERING
-    // We filter out the "Experimental" and "2.0/2.5" models that cause Quota (429) errors.
+    // Filter for Safe Models (Non-Experimental)
     const safeModels = allModels.filter(m => {
         const name = m.name.toLowerCase();
-        // Must support content generation
-        if (!m.supportedGenerationMethods.includes('generateContent')) return false;
-        // MUST NOT be experimental or 2.0 (Avoids 429 Quota errors)
-        if (name.includes('exp') || name.includes('2.0') || name.includes('2.5')) return false;
-        return true;
+        return m.supportedGenerationMethods.includes('generateContent') &&
+               !name.includes('exp') && !name.includes('2.0') && !name.includes('2.5');
     });
 
-    // Pick the best remaining one
-    // We prefer Flash, then Pro.
     let chosenModel = safeModels.find(m => m.name.includes('gemini-1.5-flash')) ||
                       safeModels.find(m => m.name.includes('gemini-1.5-pro')) ||
                       safeModels.find(m => m.name.includes('gemini-1.0-pro')) ||
                       safeModels[0];
 
-    // 4. EMERGENCY DEBUG: If no safe models found, Show the user what IS available
-    if (!chosenModel) {
-        const names = allModels.map(m => m.name).join(", ");
-        return response.status(200).json({ 
-            feedback: `<strong>DEBUG:</strong> Key valid, but no 'Safe' models found.<br>Available Models: ${names}` 
-        });
-    }
+    if (!chosenModel) return response.status(200).json({ feedback: "DEBUG: No models found." });
 
-    // 5. Construct Prompt
+    // 3. NEW PROMPT: Strict instructions for short, specific feedback
     const promptText = `
-      Act as a 6th Grade Teacher. Analyze this balance scale activity.
-      Shapes: ${body.totalShapes || 0}. Status: ${body.currentStatus || "Unknown"}.
-      Give 2 encouraging sentences. Use HTML.
+      You are a 6th Grade Graphic Design Teacher.
+      Analyze this student's work.
+      
+      Context:
+      - Shapes used: ${body.totalShapes || 0}
+      - Current Status: "${body.currentStatus || "Unknown"}" (This is the physical tilt of the beam).
+
+      Instructions:
+      - Write EXACTLY 2-3 sentences.
+      - Do NOT define terms. Do NOT give a lecture.
+      - Structure:
+        1. Praise: Mention something good (effort, variety).
+        2. Critique: Explain why it is balanced or unbalanced.
+        3. Action: Give a specific tip (e.g., "Try moving the darker shape closer to the center").
+      - Tone: Encouraging and simple.
+      - Format: HTML paragraphs (<p>).
     `;
 
-    // 6. RUN IT
-    // Ensure we use the exact name from the list (e.g., "models/gemini-1.5-flash-001")
+    // 4. RUN IT
     const modelId = chosenModel.name.replace("models/", "");
     const generateUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
 
@@ -74,9 +73,7 @@ module.exports = async (request, response) => {
 
     if (!apiResponse.ok) {
       const errorText = await apiResponse.text();
-      return response.status(200).json({ 
-        feedback: `<strong>DEBUG ERROR:</strong> Connected to ${modelId} but failed.<br>Status: ${apiResponse.status}<br>Details: ${errorText}` 
-      });
+      return response.status(200).json({ feedback: `Error: ${apiResponse.status} ${errorText}` });
     }
 
     const data = await apiResponse.json();
@@ -85,8 +82,6 @@ module.exports = async (request, response) => {
     return response.status(200).json({ feedback });
 
   } catch (error) {
-    return response.status(200).json({ 
-      feedback: `<strong>SYSTEM CRASH:</strong> ${error.message}` 
-    });
+    return response.status(200).json({ feedback: `Error: ${error.message}` });
   }
 };
