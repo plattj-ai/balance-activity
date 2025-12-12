@@ -21,31 +21,55 @@ module.exports = async (request, response) => {
     const promptText = `
       Act as a 6th Grade Teacher. Analyze this balance scale activity.
       Shapes: ${body.totalShapes || 0}. Status: ${body.currentStatus || "Unknown"}.
-      Give 2-3 sentences of encouraging feedback. Use HTML.
+      Give 2 sentences of encouraging feedback. Use HTML.
     `;
 
-    // 2. Call Google (Using the latest Stable Flash model)
-    // We switched from 'v1beta' to 'v1' for maximum stability
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    
-    const apiResponse = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
-    });
+    // 2. The "Self-Healing" Strategy
+    // We define a list of models/versions to try in order.
+    // If the first one fails, it automatically tries the next one.
+    const attempts = [
+      { model: 'gemini-1.5-flash', version: 'v1beta' }, // Try Beta line first (Most likely)
+      { model: 'gemini-1.5-flash', version: 'v1' },     // Try Stable line
+      { model: 'gemini-pro',       version: 'v1beta' }  // Fallback to older model
+    ];
 
-    // 3. Handle Errors
-    if (!apiResponse.ok) {
-      const errorText = await apiResponse.text();
-      return response.status(200).json({ 
-        feedback: `<strong>DEBUG ERROR:</strong> Google refused the connection.<br>Status: ${apiResponse.status}<br>Details: ${errorText}` 
-      });
+    let lastError = "";
+    let successData = null;
+
+    // Loop through attempts until one works
+    for (const attempt of attempts) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${apiKey}`;
+        
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] })
+        });
+
+        if (res.ok) {
+          successData = await res.json();
+          break; // It worked! Stop trying.
+        } else {
+          // If it failed, save the error and let the loop continue to the next model
+          const txt = await res.text();
+          lastError = `${attempt.model} (${attempt.version}) failed: ${res.status} ${txt}`;
+        }
+      } catch (e) {
+        lastError = e.message;
+      }
     }
 
-    const data = await apiResponse.json();
-    let feedback = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI returned no text.";
-
-    return response.status(200).json({ feedback });
+    // 3. Handle Result
+    if (successData) {
+      let feedback = successData.candidates?.[0]?.content?.parts?.[0]?.text || "AI returned no text.";
+      return response.status(200).json({ feedback });
+    } else {
+      // If ALL attempts failed, show the error
+      return response.status(200).json({ 
+        feedback: `<strong>DEBUG ERROR:</strong> All models failed.<br>Last Error: ${lastError}` 
+      });
+    }
 
   } catch (error) {
     return response.status(200).json({ 
