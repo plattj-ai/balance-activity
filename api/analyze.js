@@ -11,14 +11,18 @@ module.exports = async (request, response) => {
   if (request.method === 'OPTIONS') return response.status(200).end();
 
   try {
-    // --- PASTE PERSONAL KEY HERE ---
-    const apiKey = "AIzaSyDydaUhYtCbRn9Xr17Ah8Cu9AvlSL9y6Wc".trim(); 
-    // -------------------------------
+    // --- SECURE VERSION ---
+    // This pulls the key from Vercel's Settings instead of the code file
+    const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : "";
+    
+    if (!apiKey) {
+        return response.status(500).json({ feedback: "System Error: API Key is missing from server settings." });
+    }
+    // ----------------------
 
     const body = request.body || {};
     
     // 2. ASK GOOGLE: "What models can I use?"
-    // (We keep this logic because it's what finally fixed the connection!)
     const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
     const listResponse = await fetch(listUrl);
     
@@ -27,7 +31,7 @@ module.exports = async (request, response) => {
     const listData = await listResponse.json();
     const allModels = listData.models || [];
 
-    // Filter for Safe Models (Non-Experimental)
+    // Filter for Safe Models
     const safeModels = allModels.filter(m => {
         const name = m.name.toLowerCase();
         return m.supportedGenerationMethods.includes('generateContent') &&
@@ -41,7 +45,7 @@ module.exports = async (request, response) => {
 
     if (!chosenModel) return response.status(200).json({ feedback: "DEBUG: No models found." });
 
-    // 3. NEW PROMPT: Strict instructions for short, specific feedback
+    // 3. PROMPT: Short, 6th-grade appropriate feedback
     const promptText = `
       You are a 6th Grade Graphic Design Teacher.
       Analyze this student's work.
